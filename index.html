@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Punto Rosso</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<style>
+/* Layout: lettore a sinistra (palco + comandi + indice), testo sorgente a destra; una colonna su telefono */
+:root {
+  --bg: #f3f4f6;
+  --panel: #ffffff;
+  --ink: #15171c;
+  --muted: #6b7180;
+  --line: #dde0e6;
+  --red: #d7263d;
+  --red-soft: #fbe3e6;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-read: "Atkinson Hyperlegible", Verdana, system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101216; --panel: #181b21; --ink: #eceef2; --muted: #9298a6; --line: #2a2e37;
+    --red: #ff4d5e; --red-soft: #3a1a20; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101216; --panel: #181b21; --ink: #eceef2; --muted: #9298a6; --line: #2a2e37;
+  --red: #ff4d5e; --red-soft: #3a1a20; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-read); font-size: 15px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: 28px; margin: 0; letter-spacing: -0.02em; }
+h1 b { color: var(--red); }
+header p { margin: 0; color: var(--muted); }
+.grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+
+/* Palco */
+.stage { position: relative; height: clamp(260px, 42vw, 380px); overflow: hidden; user-select: none; }
+.stage:fullscreen { height: 100%; border-radius: 0; border: 0; }
+.sec-label { position: absolute; top: 14px; left: 18px; right: 18px; font-size: 12px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail { position: absolute; left: 8%; right: 8%; height: 1px; background: var(--line); }
+.rail.top { top: calc(50% - 64px); } .rail.bot { top: calc(50% + 64px); }
+.tick { position: absolute; left: 50%; width: 2px; height: 22px; margin-left: -1px; background: var(--muted); }
+.tick.top { top: calc(50% - 64px); } .tick.bot { top: calc(50% + 42px); }
+.word { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  font-size: calc(clamp(38px, 6.4vw, 72px) * var(--scale, 1)); line-height: 1; white-space: pre; }
+.word .pre { text-align: right; } .word .orp { color: var(--red); } .word .post { text-align: left; }
+.overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; text-align: center; padding: 0 24px; background: var(--panel); }
+.overlay h2 { font-family: var(--f-display); font-weight: 700; font-size: clamp(26px, 4vw, 44px); margin: 0;
+  text-wrap: balance; letter-spacing: -0.01em; max-width: 22ch; }
+.overlay .sub { color: var(--muted); font-size: 14px; }
+.overlay .big { font-family: var(--f-display); font-size: 96px; color: var(--red); font-weight: 700; }
+.pausebar { width: 160px; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.pausebar i { display: block; height: 100%; width: 0; background: var(--red); }
+.progress { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; cursor: pointer; }
+.progress::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--line); }
+.progress i { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--red); width: 0; }
+
+/* Comandi */
+.controls { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+button svg { width: 18px; height: 18px; }
+.play { background: var(--red); border-color: var(--red); color: #fff; padding: 10px 20px; font-weight: 700; }
+.play:hover { border-color: var(--red); filter: brightness(1.08); }
+.status { margin-left: auto; font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.speed { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.wpm { font-family: var(--f-mono); font-weight: 600; font-size: 22px; font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; }
+.wpm-unit { color: var(--muted); font-size: 13px; }
+input[type=range] { flex: 1 1 180px; accent-color: var(--red); min-width: 0; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 4px 10px; font-family: var(--f-mono); font-size: 13px; border-radius: 99px; }
+.chip[aria-pressed="true"] { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+label.check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+label.check input { accent-color: var(--red); }
+
+/* Indice */
+.index { padding: 6px 0; }
+.index h3, .source h3 { font-family: var(--f-display); font-size: 15px; font-weight: 700; margin: 0; padding: 10px 16px 6px; }
+.index ol { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.index li { counter-increment: s; }
+.index li button { width: 100%; border: 0; border-radius: 0; padding: 8px 16px; text-align: left; display: grid;
+  grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: 8px; align-items: baseline; }
+.index li button::before { content: counter(s); font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.index li button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.index li button .meta { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.index li.active button { background: var(--red-soft); }
+.index li.active button::before { color: var(--red); }
+
+/* Sorgente */
+.source { display: flex; flex-direction: column; }
+.source .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 16px 10px; }
+.source .hint { color: var(--muted); font-size: 13px; padding: 0 16px 10px; margin: 0; line-height: 1.45; }
+.source code { font-family: var(--f-mono); font-size: 12px; background: var(--red-soft); color: var(--red); padding: 1px 5px; border-radius: 4px; }
+textarea { font-family: var(--f-mono); font-size: 13px; line-height: 1.55; color: var(--ink); background: var(--bg);
+  border: 0; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; padding: 14px 16px; width: 100%;
+  min-height: 420px; resize: vertical; }
+.source.drag { outline: 2px dashed var(--red); outline-offset: -6px; }
+.msg { font-size: 13px; color: var(--muted); }
+.msg.err { color: var(--red); }
+.sample { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--red); background: var(--red-soft);
+  border-radius: 99px; padding: 2px 8px; }
+kbd { font-family: var(--f-mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+.keys { color: var(--muted); font-size: 12.5px; display: flex; gap: 14px; flex-wrap: wrap; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Punto Ros<b>s</b>o</h1>
+    <p>Incolla un testo o carica un PDF: le parole arrivano una alla volta, alla velocità che scegli.</p>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <div class="panel stage" id="stage">
+        <div class="sec-label" id="secLabel"></div>
+        <div class="rail top"></div><div class="rail bot"></div>
+        <div class="tick top"></div><div class="tick bot"></div>
+        <div class="word" id="word"><span class="pre"></span><span class="orp"></span><span class="post"></span></div>
+        <div class="overlay" id="overlay" hidden></div>
+        <div class="progress" id="progress" title="Vai a un punto del testo"><i id="progFill"></i></div>
+      </div>
+
+      <div class="panel controls">
+        <div class="row">
+          <button id="btnBack" title="Frase precedente (←)" aria-label="Frase precedente">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6M19 6l-6 6 6 6"/></svg></button>
+          <button class="play" id="btnPlay"><svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z"/></svg><span id="playTxt">Avvia</span></button>
+          <button id="btnFwd" title="Frase successiva (→)" aria-label="Frase successiva">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 6l6 6-6 6M5 6l6 6-6 6"/></svg></button>
+          <button id="btnRestart" title="Ricomincia" aria-label="Ricomincia">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg></button>
+          <button id="btnFull" title="Schermo intero (F)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Schermo intero</button>
+          <span class="status" id="status"></span>
+        </div>
+        <div class="speed">
+          <span class="wpm" id="wpmVal">300</span><span class="wpm-unit">parole/min</span>
+          <input type="range" id="wpm" min="150" max="900" step="25" value="300" aria-label="Velocità in parole al minuto">
+        </div>
+        <div class="row">
+          <div class="chips" id="chips"></div>
+          <label class="check"><input type="checkbox" id="optPause" checked> Pausa a fine sezione</label>
+          <label class="check"><input type="checkbox" id="optNum" checked> Rallenta su numeri</label>
+        </div>
+        <div class="keys"><span><kbd>Spazio</kbd> avvia/pausa</span><span><kbd>←</kbd><kbd>→</kbd> frase</span><span><kbd>↑</kbd><kbd>↓</kbd> velocità</span></div>
+      </div>
+
+      <div class="panel index">
+        <h3>Sezioni</h3>
+        <ol id="toc"></ol>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel source" id="source">
+        <h3>Testo <span class="sample" id="sampleTag">esempio</span></h3>
+        <div class="bar">
+          <button id="btnPdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>Carica PDF o .txt</button>
+          <input type="file" id="file" accept=".pdf,.txt,.md,text/plain,application/pdf" hidden>
+          <label class="check"><input type="checkbox" id="optNotes" checked> Escludi note a piè di pagina</label>
+          <span class="msg" id="msg"></span>
+        </div>
+        <p class="hint">Le righe che iniziano con <code># </code> diventano titoli di sezione. Dal PDF i titoli vengono riconosciuti dalla dimensione del carattere: puoi correggerli qui prima di leggere.</p>
+        <textarea id="src" spellcheck="false" aria-label="Testo da leggere"></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SAMPLE = `# Che cos'è la lettura RSVP
+
+La lettura RSVP, Rapid Serial Visual Presentation, mostra le parole una alla volta nello stesso punto dello schermo. L'occhio non deve più spostarsi lungo la riga: è il testo a muoversi, non lo sguardo. Nella lettura tradizionale gran parte del tempo se ne va in piccoli salti oculari, le saccadi, e nei ritorni indietro sulle parole già lette.
+
+# Il punto di fissazione
+
+Ogni parola ha una lettera in rosso. Cade poco prima del centro della parola, dove l'occhio la riconosce più in fretta. Se la lettera rossa resta sempre nello stesso punto, lo sguardo resta fermo e il cervello si concentra solo sul riconoscimento.
+
+# Velocità e comprensione
+
+Una persona legge in media tra 200 e 300 parole al minuto. Con l'allenamento si sale a 400 o 500 su testi semplici. Oltre questa soglia la comprensione cala: non si può tornare indietro, e i passaggi densi richiedono tempo. Conviene adattare la velocità al testo, più veloce per il contesto, più lenta per le regole da memorizzare.
+
+# Come usare il lettore
+
+Guarda il segno rosso al centro e lascia che le parole arrivino. Se perdi un passaggio, premi la freccia a sinistra per tornare all'inizio della frase. Sostituisci questo esempio con il tuo testo, oppure carica un PDF.`;
+
+const $ = (id) => document.getElementById(id);
+const store = { get(k, d) { try { const v = localStorage.getItem("pr_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem("pr_" + k, JSON.stringify(v)); } catch {} } };
+
+const S = { items: [], secs: [], idx: 0, playing: false, timer: null, wpm: store.get("wpm", 300),
+            pauses: store.get("pauses", true), slowNum: store.get("slowNum", true), norm: 1, nWords: 0, started: false, wake: null };
+
+/* ---------- 1. Testo -> sezioni ---------- */
+function parseText(text) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const marked = lines.some((l) => /^#{1,6}\s+\S/.test(l));
+  const secs = []; let cur = { title: null, words: [] };
+  const isHead = (l, i) => {
+    const s = l.trim();
+    if (!s) return false;
+    if (/^#{1,6}\s+\S/.test(s)) return true;
+    if (marked) return false;
+    if (s.split(/\s+/).length > 10) return false;
+    if (/^(\d+(\.\d+)*[.)]?\s+\S|[IVX]+\.\s+\S)/.test(s) && !/[.;:,]$/.test(s)) return true;
+    if (s === s.toUpperCase() && /[A-ZÀ-Ý]{3}/.test(s)) return true;
+    const prevBlank = i === 0 || !lines[i - 1].trim(), nextBlank = i + 1 >= lines.length || !lines[i + 1].trim();
+    return prevBlank && nextBlank && !/[.,;:!?)]$/.test(s);
+  };
+  lines.forEach((l, i) => {
+    if (isHead(l, i)) {
+      if (cur.words.length || cur.title) secs.push(cur);
+      cur = { title: l.trim().replace(/^#{1,6}\s+/, ""), words: [] };
+    } else cur.words.push(...l.split(/\s+/).filter(Boolean));
+  });
+  secs.push(cur);
+  return secs.filter((s) => s.words.length);
+}
+
+/* ---------- 2. Tempi ---------- */
+function weight(w) {
+  let k = 1;
+  if (/[.!?:;]["»”')]*$/.test(w)) k = 2.2;
+  else if (/[,)\]–—]["»”']*$/.test(w)) k = 1.5;
+  const core = w.replace(/[^\p{L}\p{N}]/gu, "");
+  if (core.length > 12) k *= 1.3;
+  if (S.slowNum && /\d/.test(w)) k *= 1.8;
+  return k;
+}
+function build(text, keepPos) {
+  const prevWord = keepPos ? currentWordNo() : 0;
+  S.secs = parseText(text);
+  S.items = []; S.nWords = 0; let wsum = 0;
+  S.secs.forEach((s, si) => {
+    s.start = S.items.length;
+    if (s.title) S.items.push({ k: "card", si });
+    s.firstWord = S.nWords;
+    s.words.forEach((t) => { const w = weight(t); wsum += w; S.items.push({ k: "word", si, t, w, n: S.nWords++ }); });
+    S.items.push({ k: "pause", si });
+  });
+  S.norm = S.nWords ? S.nWords / wsum : 1;           // media esatta = wpm scelti
+  S.idx = keepPos ? itemOfWord(prevWord) : 0;
+  renderToc(); show(S.items[S.idx]); status();
+}
+function dur(it) {
+  if (!it) return 0;
+  if (it.k === "word") return (60000 / S.wpm) * it.w * S.norm;
+  if (it.k === "card") return 1500;
+  return S.pauses ? 1800 : 0;
+}
+function currentWordNo() { for (let i = S.idx; i < S.items.length; i++) if (S.items[i].k === "word") return S.items[i].n; return S.nWords; }
+function itemOfWord(n) { const i = S.items.findIndex((it) => it.k === "word" && it.n >= n); return i < 0 ? 0 : i; }
+
+/* ---------- 3. Disegno ---------- */
+function orp(word) {
+  const m = word.match(/[\p{L}\p{N}]/u); const start = m ? m.index : 0;
+  const core = word.slice(start).replace(/[^\p{L}\p{N}]+$/u, "");
+  const n = core.length || 1;
+  return start + (n <= 1 ? 0 : n <= 5 ? 1 : n <= 9 ? 2 : n <= 13 ? 3 : 4);
+}
+const wordEl = $("word"), ov = $("overlay");
+function setWord(t) {
+  const i = Math.min(orp(t), t.length - 1);
+  const [pre, c, post] = [t.slice(0, i), t[i] || "", t.slice(i + 1)];
+  wordEl.children[0].textContent = pre; wordEl.children[1].textContent = c; wordEl.children[2].textContent = post;
+  const half = Math.max(pre.length, post.length) + 0.5;     // la parola deve stare in metà palco
+  wordEl.style.setProperty("--scale", Math.min(1, 9 / half).toFixed(3));
+}
+function overlay(html) { ov.innerHTML = html; ov.hidden = !html; }
+function show(it) {
+  if (!it) { overlay(`<h2>Fine</h2><div class="sub">${S.nWords} parole a ${S.wpm} parole/min</div>`); return; }
+  const s = S.secs[it.si];
+  $("secLabel").textContent = s.title || "";
+  if (it.k === "word") { overlay(""); setWord(it.t); }
+  else if (it.k === "card") overlay(`<div class="sub">Sezione ${it.si + 1} di ${S.secs.length}</div><h2></h2>`), (ov.querySelector("h2").textContent = s.title);
+  else if (it.k === "pause") {
+    overlay(`<div class="sub">Pausa · ripeti mentalmente</div><div class="pausebar"><i></i></div>`);
+    const bar = ov.querySelector("i"); requestAnimationFrame(() => { bar.style.transition = `width ${dur(it)}ms linear`; bar.style.width = "100%"; });
+  }
+  const p = S.nWords ? (it.k === "word" ? it.n + 1 : S.secs[it.si].firstWord + (it.k === "pause" ? S.secs[it.si].words.length : 0)) / S.nWords : 0;
+  $("progFill").style.width = (p * 100).toFixed(2) + "%";
+  document.querySelectorAll("#toc li").forEach((li, i) => li.classList.toggle("active", i === it.si));
+}
+function fmt(ms) { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+function status() {
+  let rest = 0; for (let i = S.idx; i < S.items.length; i++) rest += dur(S.items[i]);
+  $("status").textContent = `parola ${Math.min(currentWordNo() + 1, S.nWords)}/${S.nWords} · ${fmt(rest)} rimanenti`;
+}
+function renderToc() {
+  const ol = $("toc"); ol.innerHTML = "";
+  S.secs.forEach((s, i) => {
+    const li = document.createElement("li"), b = document.createElement("button");
+    const ms = s.words.reduce((a, t) => a + (60000 / S.wpm) * weight(t) * S.norm, 0);
+    b.innerHTML = `<span></span><span class="meta">${s.words.length} parole · ${fmt(ms)}</span>`;
+    b.firstChild.textContent = s.title || "Senza titolo";
+    b.onclick = () => { jump(s.start); };
+    li.appendChild(b); ol.appendChild(li);
+  });
+}
+
+/* ---------- 4. Riproduzione ---------- */
+function step() {
+  const it = S.items[S.idx];
+  if (!it) { stop(); show(null); return; }
+  const d = dur(it);
+  if (d === 0) { S.idx++; return step(); }
+  show(it); status();
+  S.timer = setTimeout(() => { S.idx++; step(); }, d);
+}
+function countdown(n, done) {
+  if (!S.playing) return;
+  if (n === 0) return done();
+  overlay(`<div class="big">${n}</div>`);
+  S.timer = setTimeout(() => countdown(n - 1, done), 550);
+}
+async function play() {
+  if (!S.items.length) return;
+  if (S.idx >= S.items.length) S.idx = 0;
+  S.playing = true; setPlayUi();
+  try { S.wake = await navigator.wakeLock?.request("screen"); } catch {}
+  if (!S.started) { S.started = true; countdown(3, step); } else step();
+}
+function stop() {
+  S.playing = false; clearTimeout(S.timer); setPlayUi();
+  try { S.wake?.release(); } catch {} S.wake = null;
+}
+function setPlayUi() {
+  $("playTxt").textContent = S.playing ? "Pausa" : S.idx > 0 && S.idx < S.items.length ? "Riprendi" : "Avvia";
+  $("icoPlay").innerHTML = S.playing ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>' : '<path d="M7 5v14l12-7z"/>';
+}
+function jump(i) {
+  const was = S.playing; stop();
+  S.idx = Math.max(0, Math.min(i, S.items.length - 1)); S.started = true;
+  show(S.items[S.idx]); status();
+  if (was) play();
+}
+const endsSentence = (it) => it && it.k === "word" && /[.!?]["»”')]*$/.test(it.t);
+function sentenceStart(i) {   // primo item della frase che contiene i
+  while (i > 0) { const p = S.items[i - 1]; if (p.k !== "word" || endsSentence(p)) break; i--; }
+  return i;
+}
+function back() {
+  const i = Math.min(S.idx, S.items.length - 1);
+  let s = sentenceStart(i);
+  if (s >= i - 1 && s > 0) s = sentenceStart(s - 1);   // già all'inizio: frase prima
+  jump(s);
+}
+function fwd() {
+  let i = S.idx;
+  while (i < S.items.length && !endsSentence(S.items[i])) i++;
+  jump(i + 1);
+}
+function setWpm(v) {
+  S.wpm = Math.max(150, Math.min(900, Math.round(v / 25) * 25));
+  $("wpm").value = S.wpm; $("wpmVal").textContent = S.wpm; store.set("wpm", S.wpm);
+  document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", +c.dataset.v === S.wpm));
+  renderToc(); if (S.items[S.idx]) document.querySelectorAll("#toc li").forEach((li, i) => li.classList.toggle("active", i === S.items[S.idx].si));
+  status();
+}
+
+/* ---------- 5. PDF -> testo con titoli ---------- */
+async function pdfToText(buf, skipNotes) {
+  if (!window.pdfjsLib) throw new Error("La libreria PDF non si è caricata. Ricarica la pagina.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const pages = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const tc = await page.getTextContent();
+    const items = tc.items.filter((it) => it.str && it.str.trim()).map((it) => ({
+      s: it.str, x: it.transform[4], y: it.transform[5], w: it.width,
+      h: it.height || Math.hypot(it.transform[2], it.transform[3]), f: it.fontName }));
+    items.sort((a, b) => b.y - a.y || a.x - b.x);
+    const lines = [];
+    for (const it of items) {
+      const L = lines[lines.length - 1];
+      if (L && Math.abs(L.y - it.y) < Math.max(L.h, it.h) * 0.5) L.items.push(it), (L.h = Math.max(L.h, it.h));
+      else lines.push({ y: it.y, h: it.h, items: [it] });
+    }
+    pages.push(lines);
+  }
+  // corpo del testo: dimensione e font più frequenti (pesati per caratteri)
+  const sizeC = {}, fontC = {};
+  pages.flat().forEach((L) => L.items.forEach((it) => {
+    const k = Math.round(it.h * 2) / 2; sizeC[k] = (sizeC[k] || 0) + it.s.length; fontC[it.f] = (fontC[it.f] || 0) + it.s.length; }));
+  const body = +Object.entries(sizeC).sort((a, b) => b[1] - a[1])[0][0];
+  const bodyFont = Object.entries(fontC).sort((a, b) => b[1] - a[1])[0][0];
+
+  // testo di ogni riga, togliendo i richiami di nota in apice
+  const lineText = (L) => {
+    L.items.sort((a, b) => a.x - b.x);
+    let out = "", end = null;
+    for (const it of L.items) {
+      if (/^\d{1,3}\)?$/.test(it.s.trim()) && it.h < body * 0.8 && L.items.length > 1) continue;
+      if (end !== null && it.x - end > it.h * 0.15 && !/\s$/.test(out) && !/^\s/.test(it.s)) out += " ";
+      out += it.s; end = it.x + it.w;
+    }
+    return out.replace(/\s+/g, " ").trim();
+  };
+  const all = pages.map((lines) => lines.map((L) => {
+    const t = lineText(L);
+    const big = L.items.reduce((a, it) => a + it.s.length * it.h, 0) / Math.max(1, L.items.reduce((a, it) => a + it.s.length, 0));
+    const fonts = new Set(L.items.map((i) => i.f));
+    return { t, y: L.y, size: big, otherFont: !fonts.has(bodyFont) };
+  }).filter((l) => l.t));
+
+  // intestazioni e piè di pagina ripetuti
+  const norm = (t) => t.toLowerCase().replace(/\d+/g, "#");
+  const edgeCount = {};
+  all.forEach((ls) => { const seen = new Set(); [...ls.slice(0, 2), ...ls.slice(-2)].forEach((l) => seen.add(norm(l.t))); seen.forEach((k) => (edgeCount[k] = (edgeCount[k] || 0) + 1)); });
+  const minRep = Math.max(2, Math.ceil(all.length * 0.4));
+  const isPageNo = (t) => /^(pag\.?|pagina|page)?\s*\d{1,4}(\s*(di|of|\/)\s*\d{1,4})?$/i.test(t);
+
+  const out = []; let para = "", prevHead = false, lastY = null, lastSize = body;
+  const flush = () => { if (para) out.push(para), (para = ""); };
+  for (const ls of all) {
+    ls.forEach((l, i) => {
+      const edge = i < 2 || i >= ls.length - 2;
+      if (isPageNo(l.t) || (edge && all.length > 1 && l.size < body * 1.08 && edgeCount[norm(l.t)] >= minRep)) return;
+      if (skipNotes && l.size < body * 0.88) return;
+      const words = l.t.split(" ").length;
+      const head = words <= 14 && !/[.;:,]$/.test(l.t) && /^[\p{Lu}\d]/u.test(l.t) &&
+        (l.size >= body * 1.12 || (l.otherFont && /^\d+(\.\d+)*\.?\s+\p{Lu}/u.test(l.t)) || (l.otherFont && words <= 8 && l.size >= body * 0.98));
+      if (head) {
+        if (prevHead && lastY !== null && Math.abs(lastY - l.y) < l.size * 2.2) out[out.length - 1] += " " + l.t;
+        else { flush(); out.push("# " + l.t); }
+        prevHead = true;
+      } else {
+        const gap = lastY !== null ? lastY - l.y : 0;
+        if (prevHead || gap > lastSize * 1.9 || gap < 0) flush();
+        if (para.endsWith("-") && /^\p{Ll}/u.test(l.t)) para = para.slice(0, -1) + l.t;
+        else para += (para ? " " : "") + l.t;
+        prevHead = false;
+      }
+      lastY = l.y; lastSize = l.size;
+    });
+    lastY = null;
+  }
+  flush();
+  return out.join("\n\n");
+}
+
+/* ---------- 6. Collegamenti ---------- */
+const src = $("src");
+let deb;
+src.addEventListener("input", () => {
+  $("sampleTag").hidden = true;
+  clearTimeout(deb); deb = setTimeout(() => { stop(); S.started = false; build(src.value, false); setPlayUi(); }, 400);
+});
+async function loadFile(f) {
+  if (!f) return;
+  const msg = $("msg"); msg.className = "msg"; msg.textContent = "Lettura di " + f.name + "…";
+  try {
+    let text;
+    if (/\.pdf$/i.test(f.name) || f.type === "application/pdf") text = await pdfToText(await f.arrayBuffer(), $("optNotes").checked);
+    else text = await f.text();
+    if (!text.trim()) throw new Error("Nessun testo trovato: il PDF potrebbe essere una scansione (immagine).");
+    src.value = text; $("sampleTag").hidden = true;
+    stop(); S.started = false; build(text, false); setPlayUi();
+    msg.textContent = `${f.name}: ${S.secs.length} sezioni, ${S.nWords} parole`;
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message || "Non riesco a leggere il file."; }
+}
+$("btnPdf").onclick = () => $("file").click();
+$("file").onchange = (e) => { loadFile(e.target.files[0]); e.target.value = ""; };
+const box = $("source");
+box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("drag"); });
+box.addEventListener("dragleave", () => box.classList.remove("drag"));
+box.addEventListener("drop", (e) => { e.preventDefault(); box.classList.remove("drag"); loadFile(e.dataTransfer.files[0]); });
+
+$("btnPlay").onclick = () => (S.playing ? stop() : play());
+$("btnBack").onclick = back; $("btnFwd").onclick = fwd;
+$("btnRestart").onclick = () => { stop(); S.idx = 0; S.started = false; show(S.items[0]); status(); setPlayUi(); };
+$("btnFull").onclick = async () => { try { document.fullscreenElement ? await document.exitFullscreen() : await $("stage").requestFullscreen(); } catch {} };
+$("wpm").oninput = (e) => setWpm(+e.target.value);
+$("optPause").checked = S.pauses; $("optNum").checked = S.slowNum;
+$("optPause").onchange = (e) => { S.pauses = e.target.checked; store.set("pauses", S.pauses); status(); };
+$("optNum").onchange = (e) => { S.slowNum = e.target.checked; store.set("slowNum", S.slowNum); build(src.value, true); };
+$("progress").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); jump(itemOfWord(Math.floor(((e.clientX - r.left) / r.width) * S.nWords))); };
+[250, 300, 350, 400, 500, 600].forEach((v) => {
+  const c = document.createElement("button"); c.className = "chip"; c.dataset.v = v; c.textContent = v;
+  c.onclick = () => setWpm(v); $("chips").appendChild(c);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target === src || e.target.tagName === "INPUT" && e.target.type !== "range" && e.target.type !== "checkbox") return;
+  if (e.code === "Space") { e.preventDefault(); S.playing ? stop() : play(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); fwd(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); setWpm(S.wpm + 25); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); setWpm(S.wpm - 25); }
+  else if (e.key === "f" || e.key === "F") $("btnFull").click();
+});
+
+src.value = SAMPLE;
+build(SAMPLE, false);
+setWpm(S.wpm);
+setPlayUi();
+</script>
+</body>
+</html>
